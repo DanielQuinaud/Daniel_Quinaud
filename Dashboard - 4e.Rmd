@@ -1,0 +1,276 @@
+---
+title: "População Ocupada - 2019 e 2020"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+---
+<br>
+```{r setup, include=TRUE}
+library(flexdashboard)
+library(knitr)
+library(DT)
+library(rpivotTable)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(openintro)
+library(highcharter)
+library(ggvis)
+library(tidyverse)
+library(zoo)
+library(scales)
+library(lubridate)
+#library(geobr)
+#library(sf)
+#library(brazilmaps)
+```
+
+
+
+```{r}
+mycolors <- c("red", "yellow", "green", "blue","#D89716")
+```
+```{r}
+options(scipen = 999)
+#Lendo a base de dados
+base <-read.csv2('C:/Users/daniel.silva/Downloads/pnad.csv', sep=',') 
+#Filtrando pela data de nascimento e os gemeos
+base2 <- base %>% filter(V2008!=99) %>% group_by(UPA,V1008,V1014) %>% mutate(id_domicilio = cur_group_id()) %>% 
+         ungroup() %>%   group_by(id_domicilio,V2007,V2008,V20081,V20082,Ano)%>% 
+         mutate(id_gemeos = cur_group_id()) %>% ungroup() %>%
+         group_by(id_gemeos) %>% mutate(n=n()) %>% filter(n==1)
+  
+###Análise perfil pessoas ocupados 
+base_ocpd <- base2 %>% group_by(Ano, VD4002) %>% summarize(cont=n()) %>% mutate(perc=cont/sum(cont))
+base_ocpd_sexo <- base2 %>% filter(VD4002==1) %>% group_by(Ano,V2007) %>% summarize(contagem=n())%>% mutate(perc=contagem/sum(contagem))
+base_ocpd_raca <- base2 %>% filter(VD4002==1) %>% group_by(Ano,V2010) %>% summarize(contagem=n())%>% mutate(perc=contagem/sum(contagem)) 
+base_ocpd_idade <- base2 %>% filter(VD4002==1) %>% 
+  mutate(faixa_idade=ifelse(V2009 < 20,"Abaixo de 20 anos",ifelse(V2009 >=20 & V2009 < 40,"Entre 20 e 40 anos",
+                                                                  ifelse(V2009 >=40 & V2009 < 60,"Entre 40 e 60 anos",
+                                                                                           ifelse(V2009 >=60,"Acima de 60 anos",NA))))) %>%
+  group_by(faixa_idade, Ano) %>% summarize(cont=n()) 
+  
+
+####Análise grupos
+base3 <- base2 %>% filter(VD4002==1) %>% mutate(grupos=ifelse(V4005==1,"Afastado",NA)) %>%
+  mutate(grupos=ifelse(VD4035 < 0.75*VD4031 & is.na(V4005)==TRUE,"Jornada Reduzida",grupos)) %>% 
+  mutate(grupos=ifelse(is.na(grupos==TRUE),"Ocupado",grupos)) %>%
+  group_by(Ano, grupos) %>% summarize(renda_habitual=mean(VD4019, na.rm = TRUE),renda_efetiva=mean(VD4020,na.rm = TRUE)) %>%
+  mutate(renda_habitual=round(renda_habitual,2),renda_efetiva=round(renda_efetiva,2))
+
+var_renda <- base3 %>% gather(renda,valor,renda_habitual:renda_efetiva) %>%
+   spread(Ano,valor) %>% mutate(variacao_anual=round((((`2020`/`2019`)-1)*100),2))
+
+#reggeo <- read_region()
+#reg_total3 <- reg_total2 %>% left_join(reggeo, by='code_region') %>% select(-name_region)
+
+###Suposto mapa
+
+#sf <- get_brmap(geo = c("Region"))
+#reg_total2$regiao <- toupper(reg_total2$regiao)
+
+#colnames(sf)[3] <- colnames(reg_total2)[1]
+#library(sf)
+#sf_abr <- sf %>% left_join(reg_total2, by='regiao')  
+
+#colnames(fin_associadas)[2:3] <- c("Faturamento Associadas","Despesa Assistencial Associadas")
+#base_fin <- financeiro2 %>% filter(MODALIDADE=='Medicina de Grupo') %>% gather(conta, valor,Receita.de.Contraprestações:Despesa.assistencial)%>% rename(Grupo=MODALIDADE)
+#financas <- rbind(base_fin,fin_associadas2)
+```
+Perfil da Populaçao Ocupada 
+=====================================
+Row
+--------------------------------------------------------
+
+### foi o número de pessoas ocupadas na amostra no 4º trimestre de 2019. 
+
+```{r}
+numero19 <- base_ocpd %>% filter(VD4002==1 & Ano==2019)
+valueBox(numero19$cont, color=mycolors[1])
+```
+
+
+### foi o número de pessoas ocupadas na amostra no 4º trimestre de 2020
+
+
+```{r}
+numero20 <- base_ocpd %>% filter(VD4002==1 & Ano==2020)
+valueBox(numero20$cont, color="blue")
+```
+
+### Foi a variação do número de pessoas ocupadas entre 2019 e 2020. 
+
+
+```{r}
+varanual <- round(((numero20$cont/numero19$cont)-1)*100,2)
+valueBox(paste(varanual,"%"), icon = "fa-arrow-alt-circle-up",color=mycolors[3])
+```
+
+
+
+Row
+-------------------------------
+
+### 
+
+```{r}
+base_ocpd_sexo$V2007 <- as.character(base_ocpd_sexo$V2007)
+base_ocpd_sexo[base_ocpd_sexo$V2007==1,2] <- 'Homem'
+base_ocpd_sexo[base_ocpd_sexo$V2007==2,2] <- 'Mulher'
+base_ocpd_sexo2 <- base_ocpd_sexo %>% select("Ano","V2007","perc") %>%
+  spread(Ano,perc)%>%
+  mutate(`2019`=round(`2019`*100,2),`2020`=round(`2020`*100,2))
+
+fig1 <- plot_ly(base_ocpd_sexo2, x = ~V2007, y = ~`2019`,type = 'bar', name = '2019', text=~`2019`, textposition='outside',marker = list(color = mycolors[1])) %>% add_trace(y = ~`2020`, name = '2020', text=~`2020`, textposition='outside',marker = list(color = mycolors[4]))%>% layout(title="Percentual pessoas ocupadas por sexo", uniformtext=list(minsize=8, mode='hide'),
+  yaxis = list(title = '',showgrid = FALSE,showticklabels = FALSE,range=c(0,100)),xaxis=list(title=''), barmode = 'group')
+
+
+fig1
+#################################
+```
+
+###
+```{r}
+base_ocpd_idade2 <-  base_ocpd_idade %>% group_by(Ano) %>% mutate(perc=cont/sum(cont)) %>% select(-cont) %>%
+                      spread(Ano, perc) %>%
+                          mutate(`2019`=round(`2019`*100,2),`2020`=round(`2020`*100,2))
+
+
+fig4 <- plot_ly(base_ocpd_idade2, x = ~faixa_idade, y = ~`2019`,type = 'bar', name = '2019', text=~`2019`, textposition='outside',marker = list(color = mycolors[1])) %>% add_trace(y = ~`2020`, name = '2020', text=~`2020`, textposition='outside',marker = list(color = mycolors[4]))%>% layout(title="Percentual pessoas ocupadas por faixa etária", uniformtext=list(minsize=8, mode='hide'),
+  yaxis = list(title = '',showgrid = FALSE,showticklabels = FALSE,range=c(0,80)), xaxis=list(title=''),barmode = 'group')
+ 
+
+
+fig4
+
+```
+
+
+Row
+-------------------------------
+
+### 
+```{r}
+base_ocpd_raca$V2010 <- as.character(base_ocpd_raca$V2010)
+
+base_ocpd_raca[base_ocpd_raca$V2010==1,2] <- 'Branca'
+base_ocpd_raca[base_ocpd_raca$V2010==2,2] <- 'Preta'
+base_ocpd_raca[base_ocpd_raca$V2010==3,2] <- 'Amarela'
+base_ocpd_raca[base_ocpd_raca$V2010==4,2] <- 'Parda'
+base_ocpd_raca[base_ocpd_raca$V2010==5,2] <- 'Indígena'
+base_ocpd_raca[base_ocpd_raca$V2010==9,2] <- 'Ignorado'
+
+
+
+
+fig2 <- filter(base_ocpd_raca, Ano==2019) %>%
+  plot_ly(labels = ~V2010,
+          values = ~perc,marker = list(colors = mycolors)) %>%
+  add_pie(hole = 0.1) %>%
+  layout(title="Perfil pessoas ocupadas por raça - 2019",
+         xaxis = list(zeroline = F,
+                      showline = F,
+                      showticklabels = F,
+                      showgrid = F),
+         yaxis = list(zeroline = F,
+                      showline = F,
+                      showticklabels=F,
+                      showgrid=F))
+fig2
+```
+
+###
+
+```{r}
+base_ocpd_raca$V2010 <- as.character(base_ocpd_raca$V2010)
+
+base_ocpd_raca[base_ocpd_raca$V2010==1,2] <- 'Branca'
+base_ocpd_raca[base_ocpd_raca$V2010==2,2] <- 'Preta'
+base_ocpd_raca[base_ocpd_raca$V2010==3,2] <- 'Amarela'
+base_ocpd_raca[base_ocpd_raca$V2010==4,2] <- 'Parda'
+base_ocpd_raca[base_ocpd_raca$V2010==5,2] <- 'Indígena'
+base_ocpd_raca[base_ocpd_raca$V2010==9,2] <- 'Ignorado'
+
+
+fig3 <- filter(base_ocpd_raca, Ano==2020) %>%
+  plot_ly(labels = ~V2010,
+          values = ~perc,marker = list(colors = mycolors)) %>%
+  add_pie(hole = 0.1) %>%
+  layout(title="Perfil pessoas ocupadas por raça - 2020",
+         xaxis = list(zeroline = F,
+                      showline = F,
+                      showticklabels = F,
+                      showgrid = F),
+         yaxis = list(zeroline = F,
+                      showline = F,
+                      showticklabels=F,
+                      showgrid=F))
+fig3
+```
+
+Renda da Populaçao Ocupada 
+=====================================
+Row
+-------------------------------
+
+###
+```{r}
+var_renda2 <- var_renda %>% select("grupos" ,"renda","variacao_anual") %>% spread(renda, variacao_anual)
+ 
+fig8 <- plot_ly(var_renda2, x = ~grupos, y = ~`renda_efetiva`,type = 'bar', name = 'Renda Efetiva', text=~`renda_efetiva`, textposition='outside',marker = list(color = "blue")) %>% add_trace(y = ~`renda_habitual`, name = 'Renda Habitual', text=~`renda_habitual`, textposition='outside',marker = list(color = "yellow"))%>% layout(title="Variação Renda Média - Por grupos (Em %)", uniformtext=list(minsize=8, mode='hide'),
+  yaxis = list(title = '',showgrid = FALSE,showticklabels = FALSE,range=c(-20,18)),xaxis=list(title=''), barmode = 'group')
+
+
+fig8
+```
+
+### 
+
+```{r}
+renda_afastado <- base3 %>% filter(grupos=="Afastado")  %>%gather(renda,valor,renda_habitual:renda_efetiva) %>%
+   spread(Ano,valor) 
+renda_afastado[renda_afastado$renda=='renda_efetiva',2] <- "Renda Efetiva"
+renda_afastado[renda_afastado$renda=='renda_habitual',2] <- "Renda Habitual"
+
+fig5 <- plot_ly(renda_afastado, x = ~renda, y = ~`2019`,type = 'bar', name = '2019', text=~`2019`, textposition='outside',marker = list(color = "blue")) %>% add_trace(y = ~`2020`, name = '2020', text=~`2020`, textposition='outside',marker = list(color = "yellow"))%>% layout(title="Rendimento Médio - Pessoas Afastadas", uniformtext=list(minsize=8, mode='hide'),
+  yaxis = list(title = '',showgrid = FALSE,showticklabels = FALSE,range=c(0,3000)),xaxis=list(title=''), barmode = 'group')
+
+
+fig5
+#################################
+```
+
+Row
+-------------------------------
+
+###
+
+```{r}
+renda_reduzido <- base3 %>% filter(grupos=="Jornada Reduzida")  %>%gather(renda,valor,renda_habitual:renda_efetiva) %>%
+   spread(Ano,valor) 
+renda_reduzido[renda_reduzido$renda=='renda_efetiva',2] <- "Renda Efetiva"
+renda_reduzido[renda_reduzido$renda=='renda_habitual',2] <- "Renda Habitual"
+
+fig6 <- plot_ly(renda_reduzido, x = ~renda, y = ~`2019`,type = 'bar', name = '2019', text=~`2019`, textposition='outside',marker = list(color = "blue")) %>% add_trace(y = ~`2020`, name = '2020', text=~`2020`, textposition='outside',marker = list(color = "yellow"))%>% layout(title="Rendimento Médio - Pessoas com Jornada Reduzida", uniformtext=list(minsize=8, mode='hide'),
+  yaxis = list(title = '',showgrid = FALSE,showticklabels = FALSE,range=c(0,3000)),xaxis=list(title=''), barmode = 'group')
+
+
+fig6
+
+```
+
+### 
+
+```{r}
+renda_ocupado <- base3 %>% filter(grupos=="Ocupado")  %>%gather(renda,valor,renda_habitual:renda_efetiva) %>%
+   spread(Ano,valor) 
+renda_ocupado[renda_ocupado$renda=='renda_efetiva',2] <- "Renda Efetiva"
+renda_ocupado[renda_ocupado$renda=='renda_habitual',2] <- "Renda Habitual"
+
+fig7 <- plot_ly(renda_ocupado, x = ~renda, y = ~`2019`,type = 'bar', name = '2019', text=~`2019`, textposition='outside',marker = list(color = "blue")) %>% add_trace(y = ~`2020`, name = '2020', text=~`2020`, textposition='outside',marker = list(color = "yellow"))%>% layout(title="Rendimento Médio - Pessoas Ocupadas", uniformtext=list(minsize=8, mode='hide'),
+  yaxis = list(title = '',showgrid = FALSE,showticklabels = FALSE,range=c(0,3000)),xaxis=list(title=''), barmode = 'group')
+
+
+fig7
+```
